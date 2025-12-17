@@ -17,15 +17,13 @@ const supabase = createClient(
   import.meta.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const json = (obj: any, status = 200) =>
-  new Response(JSON.stringify(obj), {
-    status,
+const ok = (text: string) =>
+  new Response(JSON.stringify({ fulfillmentText: text }), {
+    status: 200,
     headers: { "Content-Type": "application/json; charset=utf-8" },
   });
 
-const ok = (text: string) => json({ fulfillmentText: text });
-
-function normalizeIntent(name?: string | null): string {
+function normalizeIntent(name?: string | null) {
   return (name ?? "").trim().toLowerCase();
 }
 
@@ -33,13 +31,6 @@ function asString(v: any, fallback = ""): string {
   if (v === undefined || v === null) return fallback;
   if (Array.isArray(v)) return v.length ? String(v[0]) : fallback;
   return String(v);
-}
-
-/** Karena di Dialogflow kamu beberapa param IS LIST, ambil item pertama yang masuk akal */
-function firstOf<T>(v: any): T | null {
-  if (v === undefined || v === null) return null;
-  if (Array.isArray(v)) return (v[0] as T) ?? null;
-  return v as T;
 }
 
 function sanitizeCourse(v: any): string {
@@ -51,15 +42,11 @@ function sanitizeCourse(v: any): string {
   return s;
 }
 
-/** Parse prioritas dari text kalau DF belum ngasih parameter */
 function parsePriorityFromText(text: string): "low" | "medium" | "high" {
   const t = (text ?? "").toLowerCase();
-
-  // tangkap: "prioritas tinggi", "priority high", "urgent"
   if (/\b(urgent|tinggi|high|penting)\b/.test(t)) return "high";
   if (/\b(rendah|low)\b/.test(t)) return "low";
   if (/\b(sedang|medium|normal|biasa)\b/.test(t)) return "medium";
-
   return "medium";
 }
 
@@ -69,100 +56,75 @@ function priorityLabel(p: "low" | "medium" | "high") {
   return "sedang";
 }
 
-/**
- * Dialogflow @sys.date-time kadang bentuknya:
- * - "2025-01-20T12:00:00+07:00"
- * - array ["..."]
- * - object { startDateTime, endDateTime } (range)
- * - object { date_time: "..."} (kadang)
- */
-function extractDateTime(params: DFParameters, queryText: string) {
-  const raw = params["date-time"] ?? params["date_time"] ?? params["datetime"] ?? params["dateTime"];
-
-  // 1) string / array
-  const rawStr = asString(raw, "");
-  if (rawStr && typeof rawStr === "string" && rawStr.includes("T")) {
-    return { iso: rawStr, range: null as null | { start: string; end: string } };
-  }
-
-  // 2) object range: { startDateTime, endDateTime }
-  const rawObj = firstOf<any>(raw);
-  if (rawObj && typeof rawObj === "object") {
-    const start = rawObj.startDateTime || rawObj.start_date_time || rawObj.start;
-    const end = rawObj.endDateTime || rawObj.end_date_time || rawObj.end;
-    const single = rawObj.date_time || rawObj.dateTime || rawObj.value;
-
-    if (typeof single === "string" && single.includes("T")) {
-      return { iso: single, range: null };
-    }
-    if (typeof start === "string" && typeof end === "string") {
-      return { iso: null as any, range: { start, end } };
-    }
-  }
-
-  // 3) fallback: coba parse jam HH:MM dari queryText, tanggal default hari ini
-  // (minimal: biar tidak selalu 23:59 tanpa alasan)
-  const m = (queryText ?? "").match(/\b(?:jam|pukul)\s*(\d{1,2})(?:[:.](\d{2}))?\b/i);
-  if (m) {
-    const hh = String(Math.min(23, Math.max(0, Number(m[1])))).padStart(2, "0");
-    const mm = String(Math.min(59, Math.max(0, Number(m[2] ?? "0")))).padStart(2, "0");
-    // ISO tanpa timezone -> biar Supabase parse sebagai UTC; untuk sederhana, kita kirim "YYYY-MM-DDTHH:MM:00+07:00"
-    const now = new Date();
-    const y = now.getFullYear();
-    const mon = String(now.getMonth() + 1).padStart(2, "0");
-    const d = String(now.getDate()).padStart(2, "0");
-    const iso = `${y}-${mon}-${d}T${hh}:${mm}:00+07:00`;
-    return { iso, range: null };
-  }
-
-  // fallback terakhir: null (nanti default di add_task -> end of day)
-  return { iso: null as any, range: null as null | { start: string; end: string } };
+/** @sys.date bisa "2025-01-20" atau "2025-01-20T00:00:00+07:00" */
+function pickDateOnly(sysDate?: string) {
+  if (!sysDate) return null;
+  return sysDate.split("T")[0]; // YYYY-MM-DD
 }
 
-function formatIdDateTime(iso: string) {
-  // tampilan rapi untuk user (WIB)
-  try {
-    const dt = new Date(iso);
-    const fmt = new Intl.DateTimeFormat("id-ID", {
-      timeZone: "Asia/Jakarta",
-      day: "2-digit",
-      month: "short",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-    return fmt.format(dt).replace(".", ""); // kadang "Des." -> "Des"
-  } catch {
-    return iso;
-  }
+/** @sys.time bisa "19:00:00" atau "2025-...T19:00:00+07:00" (kadang) */
+function pickTimeOnly(sysTime?: string) {
+  if (!sysTime) return null;
+
+  // kalau sudah HH:MM atau HH:MM:SS
+  const m1 = sysTime.match(/\b(\d{2}:\d{2})(:\d{2})?\b/);
+  if (m1) return m1[1] + ":00"; // jadi HH:MM:SS
+
+  // kalau ISO, ambil bagian jam
+  const m2 = sysTime.match(/T(\d{2}:\d{2})(:\d{2})?/);
+  if (m2) return m2[1] + ":00";
+
+  return null;
 }
 
-/** Ambil title: prioritas ke params.title dulu, kalau kosong coba ekstrak dari queryText */
+/** Gabungkan date + time menjadi ISO WIB */
+function buildDueIso(dateOnly: string, timeOnly: string) {
+  // hasil: YYYY-MM-DDTHH:MM:SS+07:00
+  return `${dateOnly}T${timeOnly}+07:00`;
+}
+
+/** fallback: end of day WIB */
+function endOfDayIso(dateOnly: string) {
+  return `${dateOnly}T23:59:00+07:00`;
+}
+
+function todayDateOnlyWIB() {
+  const now = new Date();
+  const ymd = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jakarta" }).format(now);
+  return ymd; // YYYY-MM-DD
+}
+
+function formatWIB(iso: string) {
+  const d = new Date(iso);
+  const fmt = new Intl.DateTimeFormat("id-ID", {
+    timeZone: "Asia/Jakarta",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return fmt.format(d).replace(".", "") + " WIB";
+}
+
 function extractTitle(params: DFParameters, queryText: string) {
-  let title = asString(params.title ?? params.task_title ?? params["judul"], "").trim();
+  let title = asString(params.title ?? params.task_title ?? params.judul, "").trim();
 
-  // kalau title salah kayak "untuk", "tugas", dll -> coba fallback
+  // kalau title kepotong / kosong, coba ambil dari queryText
   if (!title || /^untuk$/i.test(title) || /^tugas$/i.test(title)) {
-    // coba pola umum: "tambah tugas <TITLE> untuk <COURSE>"
     const t = queryText ?? "";
     const m = t.match(/(?:tambah|buat|catat)\s+tugas\s+(.+?)\s+untuk\s+/i);
     if (m?.[1]) title = m[1].trim();
   }
-
   return title;
 }
 
 function extractCourse(params: DFParameters, queryText: string) {
-  // @course kamu IS LIST di add_task → ambil first
-  let course = sanitizeCourse(params.course ?? params["mata_kuliah"] ?? params["mk"]);
-
+  let course = sanitizeCourse(params.course ?? params.mk ?? params.mata_kuliah);
   if (!course) {
-    // fallback: cari "untuk X"
-    const t = queryText ?? "";
-    const m = t.match(/\buntuk\s+([a-z0-9 ]{2,30})\b/i);
+    const m = (queryText ?? "").match(/\buntuk\s+([a-z0-9 ]{2,30})\b/i);
     if (m?.[1]) course = sanitizeCourse(m[1]);
   }
-
   return course || "umum";
 }
 
@@ -173,33 +135,39 @@ export const POST: APIRoute = async ({ request }) => {
   const params = body.queryResult?.parameters ?? {};
   const queryText = body.queryResult?.queryText ?? "";
 
-  // sementara: single user
   const userId = "demo";
 
   try {
-    // =========================
-    // INTENT: add_task
-    // Params (sesuai screenshot):
-    // - title (@sys.any)
-    // - course (@course, list)
-    // - date-time (@sys.date-time, list)
-    // priority: kita parse dari queryText (atau tambah param sendiri nanti)
-    // =========================
+    // ============ add_task ============
     if (intentName === "add_task") {
       const title = extractTitle(params, queryText);
       if (!title) return ok("Judul tugasnya apa? (contoh: “Quiz 2”, “Laporan Praktikum”)");
 
       const course = extractCourse(params, queryText);
 
-      const { iso } = extractDateTime(params, queryText);
-      // kalau DF tidak kasih date-time, default end of day WIB
-      const dueIso = iso || (() => {
-        const now = new Date();
-        const y = now.getFullYear();
-        const mon = String(now.getMonth() + 1).padStart(2, "0");
-        const d = String(now.getDate()).padStart(2, "0");
-        return `${y}-${mon}-${d}T23:59:00+07:00`;
-      })();
+      // Ambil due_date & due_time (cara paling stabil)
+      const dueDate = pickDateOnly(asString(params.due_date, ""));
+      const dueTime = pickTimeOnly(asString(params.due_time, ""));
+
+      // Fallback: kalau user pakai date-time
+      const dateTime = asString(params["date-time"] ?? params.date_time ?? params.datetime, "");
+
+      let dueIso: string;
+
+      if (dueDate && dueTime) {
+        dueIso = buildDueIso(dueDate, dueTime);
+      } else if (dueDate && !dueTime) {
+        dueIso = endOfDayIso(dueDate);
+      } else if (!dueDate && dueTime) {
+        // ada jam tapi gak ada tanggal -> pakai hari ini
+        dueIso = buildDueIso(todayDateOnlyWIB(), dueTime);
+      } else if (dateTime && dateTime.includes("T")) {
+        // date-time dari DF
+        dueIso = dateTime;
+      } else {
+        // terakhir: hari ini 23:59
+        dueIso = endOfDayIso(todayDateOnlyWIB());
+      }
 
       const priority = parsePriorityFromText(queryText);
 
@@ -207,7 +175,7 @@ export const POST: APIRoute = async ({ request }) => {
         user_id: userId,
         title: title.trim(),
         course,
-        due_at: dueIso, // pastikan kolom due_at = timestamptz
+        due_at: dueIso,
         priority,
         status: "todo",
       });
@@ -218,23 +186,17 @@ export const POST: APIRoute = async ({ request }) => {
         `✅ Oke, sudah aku simpan.\n` +
         `• Tugas: ${title.trim()}\n` +
         `• MK: ${course}\n` +
-        `• Deadline: ${formatIdDateTime(dueIso)}\n` +
+        `• Deadline: ${formatWIB(dueIso)}\n` +
         `• Prioritas: ${priorityLabel(priority)}`;
 
       return ok(reply);
     }
 
-    // =========================
-    // INTENT: list_tasks_by_course
-    // Params:
-    // - course (@course)
-    // - status (@status) -> optional
-    // =========================
+    // ============ list_tasks_by_course ============
     if (intentName === "list_tasks_by_course") {
       const course = extractCourse(params, queryText);
       const statusRaw = asString(params.status, "").toLowerCase();
 
-      // map status yang mungkin kamu pakai di entity @status
       const mapStatus: Record<string, "todo" | "in_progress" | "done" | ""> = {
         todo: "todo", "to do": "todo", belum: "todo",
         "in progress": "in_progress", progres: "in_progress", proses: "in_progress", in_progress: "in_progress",
@@ -250,7 +212,6 @@ export const POST: APIRoute = async ({ request }) => {
         .eq("user_id", userId)
         .ilike("course", course);
 
-      // default: kalau user tidak spesifik status, tampilkan yang belum done
       if (status) q = q.eq("status", status);
       else q = q.neq("status", "done");
 
@@ -261,53 +222,22 @@ export const POST: APIRoute = async ({ request }) => {
         return ok(`Tidak ada tugas untuk ${course}${status ? ` (status: ${status})` : ""}.`);
       }
 
-      const lines = data.slice(0, 10).map((r) => {
-        const dt = r.due_at ? formatIdDateTime(String(r.due_at)) : "-";
-        return `• ${r.title} — ${dt} (${priorityLabel(r.priority)}, ${r.status})`;
-      });
+      const lines = data.slice(0, 10).map((r) =>
+        `• ${r.title} — ${formatWIB(String(r.due_at))} (${priorityLabel(r.priority)}, ${r.status})`
+      );
 
       const more = data.length > 10 ? `\n…dan ${data.length - 10} lainnya.` : "";
       return ok(`📚 Tugas untuk ${course}:\n${lines.join("\n")}${more}`);
     }
 
-    // =========================
-    // INTENT: list_tasks_by_date
-    // Params:
-    // - date-time (@sys.date-time) (bisa range)
-    // =========================
+    // ============ list_tasks_by_date ============
     if (intentName === "list_tasks_by_date") {
-      const { iso, ensure, range } = { ...extractDateTime(params, queryText), ensure: true } as any;
+      const dateTime = asString(params["date-time"] ?? params.date_time ?? params.datetime, "");
+      if (!dateTime) return ok("Tanggalnya kapan? (contoh: “hari ini”, “besok”, atau “tanggal 20 November”)");
 
-      // kalau DF kasih range (minggu ini / 3 hari ke depan)
-      if (range?.start && range?.end) {
-        const { data, error } = await supabase
-          .from("tasks")
-          .select("title, course, due_at, priority, status")
-          .eq("user_id", userId)
-          .gte("due_at", range.start)
-          .lte("due_at", range.end)
-          .neq("status", "done")
-          .order("due_at", { ascending: true });
-
-        if (error) throw error;
-
-        if (!data || data.length === 0) return ok("Tidak ada tugas (yang belum selesai) di rentang waktu itu.");
-
-        const lines = data.slice(0, 10).map((r) =>
-          `• ${r.title} [${r.course}] — ${formatIdDateTime(String(r.due_at))} (${priorityLabel(r.priority)})`
-        );
-
-        const more = data.length > 10 ? `\n…dan ${data.length - 10} lainnya.` : "";
-        return ok(`🗓️ Tugas dalam periode itu:\n${lines.join("\n")}${more}`);
-      }
-
-      // kalau DF kasih date-time tunggal, kita cari satu hari (00:00-23:59 WIB)
-      const baseIso = iso;
-      if (!baseIso) return ok("Tanggal berapa? (contoh: “besok”, “hari ini”, atau “tanggal 20 November”)");
-
-      // ambil tanggalnya saja berdasarkan Asia/Jakarta
-      const dt = new Date(baseIso);
-      const ymd = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jakarta" }).format(dt); // YYYY-MM-DD
+      // ambil date WIB dari dateTime
+      const dt = new Date(dateTime);
+      const ymd = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jakarta" }).format(dt);
       const from = `${ymd}T00:00:00+07:00`;
       const to = `${ymd}T23:59:59+07:00`;
 
@@ -324,21 +254,16 @@ export const POST: APIRoute = async ({ request }) => {
       if (!data || data.length === 0) return ok(`Tidak ada tugas (yang belum selesai) pada ${ymd}.`);
 
       const lines = data.slice(0, 10).map((r) =>
-        `• ${r.title} [${r.course}] — ${formatIdDateTime(String(r.due_at))} (${priorityLabel(r.priority)})`
+        `• ${r.title} [${r.course}] — ${formatWIB(String(r.due_at))} (${priorityLabel(r.priority)})`
       );
-      const more = data.length > 10 ? `\n…dan ${data.length - 10} lainnya.` : "";
 
+      const more = data.length > 10 ? `\n…dan ${data.length - 10} lainnya.` : "";
       return ok(`🗓️ Tugas pada ${ymd}:\n${lines.join("\n")}${more}`);
     }
 
-    // =========================
-    // INTENT: update_status
-    // Screenshot kamu belum ada param "title" di table, tapi training phrases punya "tugas <judul>"
-    // Jadi kita ambil judul dari queryText, lalu ubah status.
-    // =========================
+    // ============ update_status ============
     if (intentName === "update_status") {
       const statusRaw = asString(params.status, "").toLowerCase();
-
       const mapStatus: Record<string, "todo" | "in_progress" | "done"> = {
         todo: "todo", "to do": "todo", belum: "todo",
         "in progress": "in_progress", progres: "in_progress", proses: "in_progress", in_progress: "in_progress",
@@ -348,7 +273,6 @@ export const POST: APIRoute = async ({ request }) => {
       const status = mapStatus[statusRaw];
       if (!status) return ok("Statusnya mau jadi apa? (todo / in progress / selesai)");
 
-      // Ambil judul dari queryText: "ubah status tugas <TITLE> jadi ..."
       const m =
         queryText.match(/tugas\s+(.+?)\s+(?:jadi|ke)\s+/i) ||
         queryText.match(/tandai\s+tugas\s+(.+?)\s+(?:jadi|sebagai)?\s*/i);
@@ -369,7 +293,6 @@ export const POST: APIRoute = async ({ request }) => {
       return ok(`✅ Sip. Status "${titleParam}" sudah aku ubah jadi ${status}.`);
     }
 
-    // fallback
     return ok("Webhook aktif ✅ Tapi intent ini belum aku handle di server.");
   } catch (err: any) {
     console.error("Webhook error:", err?.message ?? err);
@@ -383,6 +306,7 @@ export const GET: APIRoute = async () => {
     headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
 };
+
 
 
 
