@@ -1,285 +1,341 @@
 ---
-const examples = [
-  "Tambah tugas Quiz 2 untuk Kalkulus besok",
-  "Tambah tugas Laporan Praktikum untuk Fisika tanggal 20 jam 19:00 prioritas tinggi",
-  "Tugas Kalkulus apa saja?",
-  "Tugas besok",
-  "Ada tugas apa saja?",
-  "Ubah status Quiz 2 jadi selesai",
-];
+const AGENT_ID = "e6380229-e150-4622-8273-ba23458ecf91";
+const CHAT_TITLE = "Chatbot_Tugas_Kuliah";
+const LANG = "id";
 ---
 
+<!doctype html>
 <html lang="id">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Chatbot Tracker Tugas Kuliah</title>
+    <title>{CHAT_TITLE}</title>
 
     <style>
       :root {
         --bg: #0b1220;
-        --card: rgba(255, 255, 255, 0.06);
-        --border: rgba(255, 255, 255, 0.12);
-        --text: rgba(255, 255, 255, 0.92);
-        --muted: rgba(255, 255, 255, 0.7);
-        --accent: #60a5fa;
+        --card: #111a2e;
+        --text: #e7ecff;
+        --muted: #a8b3da;
+        --border: rgba(255, 255, 255, 0.08);
+        --btn: rgba(255, 255, 255, 0.08);
+        --btnHover: rgba(255, 255, 255, 0.14);
+        --accent: #6ea8fe;
       }
 
-      * { box-sizing: border-box; }
       body {
         margin: 0;
-        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Liberation Sans";
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+        background: radial-gradient(900px 600px at 15% 10%, rgba(110,168,254,.18), transparent 55%),
+          radial-gradient(900px 600px at 80% 35%, rgba(142,68,255,.12), transparent 55%),
+          var(--bg);
         color: var(--text);
-        background:
-          radial-gradient(1200px 700px at 20% 0%, rgba(96, 165, 250, 0.25), transparent 55%),
-          radial-gradient(900px 600px at 80% 30%, rgba(167, 139, 250, 0.18), transparent 60%),
-          linear-gradient(180deg, #070b14, #0b1220 60%, #070b14);
-        min-height: 100vh;
       }
 
       .wrap {
         max-width: 1100px;
         margin: 0 auto;
-        padding: 44px 18px 90px;
-      }
-
-      header {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
+        padding: 28px 18px 80px;
+        display: grid;
+        grid-template-columns: 1.2fr 0.8fr;
         gap: 18px;
-        margin-bottom: 18px;
       }
 
-      .title {
-        margin: 0;
-        font-size: 32px;
-        letter-spacing: -0.02em;
-        line-height: 1.1;
+      @media (max-width: 980px) {
+        .wrap { grid-template-columns: 1fr; }
       }
 
-      .subtitle {
-        margin: 10px 0 0;
+      .hero {
+        border: 1px solid var(--border);
+        background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+        border-radius: 16px;
+        padding: 18px;
+        backdrop-filter: blur(8px);
+      }
+
+      h1 {
+        font-size: 22px;
+        margin: 0 0 6px;
+        letter-spacing: .2px;
+      }
+
+      .sub {
+        margin: 0 0 14px;
         color: var(--muted);
-        max-width: 720px;
-      }
-
-      .hint {
-        margin-top: 14px;
-        display: inline-flex;
-        gap: 10px;
-        align-items: center;
-        padding: 10px 12px;
-        border-radius: 12px;
-        background: rgba(96, 165, 250, 0.12);
-        border: 1px solid rgba(96, 165, 250, 0.22);
-        color: rgba(255,255,255,0.85);
-        font-size: 14px;
+        line-height: 1.4;
       }
 
       .grid {
         display: grid;
-        grid-template-columns: 1fr;
-        gap: 14px;
-        margin-top: 18px;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+        margin-top: 14px;
       }
 
-      @media (min-width: 900px) {
-        .grid {
-          grid-template-columns: 1fr 1fr;
-        }
+      @media (max-width: 760px) {
+        .grid { grid-template-columns: 1fr; }
       }
 
       .card {
-        padding: 16px;
-        border-radius: 18px;
-        background: var(--card);
         border: 1px solid var(--border);
-        backdrop-filter: blur(10px);
-      }
-
-      .badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 12px;
-        padding: 6px 10px;
-        border-radius: 999px;
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        color: rgba(255,255,255,0.85);
-        margin-bottom: 10px;
+        background: rgba(17, 26, 46, 0.75);
+        border-radius: 14px;
+        padding: 14px;
       }
 
       .card h2 {
-        margin: 0 0 8px;
-        font-size: 18px;
-        letter-spacing: -0.01em;
-      }
-
-      .card p, .card li {
-        color: var(--muted);
-        margin: 0;
         font-size: 14px;
-        line-height: 1.55;
+        margin: 0 0 6px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
       }
 
-      ul { margin: 8px 0 0; padding-left: 18px; }
+      .pill {
+        font-size: 11px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        color: var(--muted);
+        background: rgba(255,255,255,.03);
+      }
+
+      .desc {
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+        margin: 0 0 10px;
+      }
 
       .examples {
-        margin-top: 14px;
-        display: grid;
-        grid-template-columns: 1fr;
-        gap: 10px;
-      }
-
-      @media (min-width: 900px) {
-        .examples {
-          grid-template-columns: 1fr 1fr;
-        }
-      }
-
-      .ex {
         display: flex;
-        gap: 12px;
-        align-items: center;
-        justify-content: space-between;
-        padding: 12px 12px;
-        border-radius: 14px;
-        border: 1px solid rgba(255,255,255,0.12);
-        background: rgba(0,0,0,0.10);
+        flex-wrap: wrap;
+        gap: 8px;
       }
 
-      .ex span {
-        color: rgba(255,255,255,0.85);
-        font-size: 14px;
-        line-height: 1.35;
-      }
-
-      .ex button {
-        border: 1px solid rgba(255,255,255,0.18);
-        background: rgba(255,255,255,0.08);
-        color: rgba(255,255,255,0.9);
+      button.example {
+        border: 1px solid var(--border);
+        background: var(--btn);
+        color: var(--text);
         padding: 8px 10px;
-        border-radius: 12px;
+        border-radius: 10px;
         cursor: pointer;
-        font-weight: 600;
-      }
-
-      .ex button:hover {
-        background: rgba(255,255,255,0.12);
-      }
-
-      .footer-note {
-        margin-top: 16px;
-        color: rgba(255,255,255,0.6);
         font-size: 12.5px;
+        line-height: 1.2;
+        transition: background .12s ease, transform .12s ease;
       }
 
-      /* Biar df-messenger tidak nutup tombol contoh di layar kecil */
+      button.example:hover {
+        background: var(--btnHover);
+        transform: translateY(-1px);
+      }
+
+      .side {
+        border: 1px solid var(--border);
+        background: rgba(17, 26, 46, 0.65);
+        border-radius: 16px;
+        padding: 16px;
+        height: fit-content;
+      }
+
+      .side h3 {
+        margin: 0 0 8px;
+        font-size: 14px;
+      }
+
+      .steps {
+        margin: 0;
+        padding-left: 18px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .note {
+        margin-top: 12px;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px dashed rgba(110,168,254,.35);
+        background: rgba(110,168,254,.08);
+        color: var(--muted);
+        font-size: 12.5px;
+        line-height: 1.45;
+      }
+
+      /* Atur posisi df-messenger */
       df-messenger {
-        --df-messenger-font-family: ui-sans-serif, system-ui, Segoe UI, Roboto, Arial;
+        --df-messenger-bot-message: #111a2e;
+        --df-messenger-user-message: #e7ecff;
+        --df-messenger-chat-background-color: #0b1220;
+        --df-messenger-font-color: #e7ecff;
+        --df-messenger-send-icon: #6ea8fe;
+        --df-messenger-button-titlebar-color: #1a2a4a;
+        --df-messenger-input-box-color: #111a2e;
+        --df-messenger-input-font-color: #e7ecff;
+        --df-messenger-input-placeholder-font-color: rgba(231,236,255,.55);
       }
     </style>
   </head>
 
   <body>
     <div class="wrap">
-      <header>
-        <div>
-          <h1 class="title">Chatbot Tracker Tugas Kuliah</h1>
-          <p class="subtitle">
-            Tambah tugas, cek tugas, dan ubah status lewat chat. Semua tersimpan di database (Supabase) dan berjalan di Vercel.
-          </p>
-          <div class="hint">💡 Klik contoh di bawah → teks otomatis masuk ke chat (tinggal Enter).</div>
-        </div>
-      </header>
+      <section class="hero">
+        <h1>Chatbot Tracker Tugas Kuliah</h1>
+        <p class="sub">
+          Klik contoh perintah di bawah supaya otomatis masuk ke chat.
+          Semua contoh ini sesuai dengan intent yang kamu buat: <b>add_task</b>,
+          <b>list_tasks_by_course</b>, <b>list_tasks_by_date</b>, dan <b>update_status</b>.
+        </p>
 
-      <section class="grid">
-        <div class="card">
-          <div class="badge">✅ Tambah tugas</div>
-          <h2>Format yang disarankan</h2>
-          <p>
-            <b>Tambah tugas</b> [judul] <b>untuk</b> [mata kuliah] [tanggal] [jam] <b>prioritas</b> [rendah/sedang/tinggi]
-          </p>
-          <p style="margin-top:10px">
-            Contoh: <i>Tambah tugas Quiz 2 untuk Kalkulus besok</i>
-          </p>
-        </div>
-
-        <div class="card">
-          <div class="badge">📌 Cek & kelola tugas</div>
-          <h2>Contoh pertanyaan yang bisa kamu pakai</h2>
-          <ul>
-            <li><b>Tanya per MK:</b> “Tugas Kalkulus apa saja?”</li>
-            <li><b>Tanya per tanggal:</b> “Tugas besok” / “Tugas tanggal 20 Januari”</li>
-            <li><b>Semua tugas:</b> “Ada tugas apa saja?”</li>
-            <li><b>Ubah status:</b> “Ubah status Quiz 2 jadi selesai”</li>
-          </ul>
-        </div>
-      </section>
-
-      <section class="card" style="margin-top:14px">
-        <div class="badge">⚡ Contoh cepat (klik)</div>
-
-        <div class="examples">
-          {examples.map((t) => (
-            <div class="ex">
-              <span>{t}</span>
-              <button type="button" data-example={t}>Pakai</button>
+        <div class="grid">
+          <!-- ADD TASK -->
+          <div class="card">
+            <h2>➕ Tambah Tugas <span class="pill">add_task</span></h2>
+            <p class="desc">
+              Format enak (paling stabil): <br />
+              <span style="color: var(--text)">Tambah tugas [JUDUL] untuk [MK] [WAKTU] prioritas [rendah/sedang/tinggi]</span>
+            </p>
+            <div class="examples">
+              <button class="example" data-example="Tambah tugas Quiz 2 untuk Kalkulus besok">
+                Tambah: Quiz 2 (besok)
+              </button>
+              <button class="example" data-example="Tambah tugas Laporan Praktikum untuk Fisika besok jam 19:00 prioritas tinggi">
+                Tambah: Laporan Praktikum + jam + prioritas
+              </button>
+              <button class="example" data-example="Catat tugas Resume Bab 3 untuk Sistem Digital hari Jumat jam 23:00 prioritas sedang">
+                Tambah: deadline spesifik
+              </button>
             </div>
-          ))}
-        </div>
+          </div>
 
-        <div class="footer-note">
-          Catatan: jika chat belum muncul, tunggu 1–2 detik sampai widget selesai load.
+          <!-- LIST BY COURSE -->
+          <div class="card">
+            <h2>📚 Tugas per MK <span class="pill">list_tasks_by_course</span></h2>
+            <p class="desc">
+              Tanya tugas untuk mata kuliah tertentu. Bisa tambah filter status kalau kamu pakai entity <b>@status</b>.
+            </p>
+            <div class="examples">
+              <button class="example" data-example="Tugas Kalkulus apa saja?">
+                Tugas Kalkulus
+              </button>
+              <button class="example" data-example="Tugas Jaringan Komputer yang masih todo apa saja?">
+                Tugas Jarkom (todo)
+              </button>
+              <button class="example" data-example="Tugas Fisika Dasar yang belum selesai apa?">
+                Tugas Fisdas (belum selesai)
+              </button>
+            </div>
+          </div>
+
+          <!-- LIST BY DATE -->
+          <div class="card">
+            <h2>🗓️ Tugas per Tanggal <span class="pill">list_tasks_by_date</span></h2>
+            <p class="desc">
+              Cocok untuk “hari ini / besok / minggu ini / tanggal tertentu”.
+            </p>
+            <div class="examples">
+              <button class="example" data-example="Tugas hari ini apa saja?">
+                Hari ini
+              </button>
+              <button class="example" data-example="Tugas besok apa aja?">
+                Besok
+              </button>
+              <button class="example" data-example="Tugas minggu ini apa saja?">
+                Minggu ini
+              </button>
+              <button class="example" data-example="Tugas yang due tanggal 20 November apa?">
+                Tanggal tertentu
+              </button>
+            </div>
+          </div>
+
+          <!-- UPDATE STATUS -->
+          <div class="card">
+            <h2>✅ Ubah Status <span class="pill">update_status</span></h2>
+            <p class="desc">
+              Format yang paling aman: <br />
+              <span style="color: var(--text)">Ubah status tugas [JUDUL] jadi [todo / in progress / selesai]</span>
+            </p>
+            <div class="examples">
+              <button class="example" data-example="Ubah status tugas Quiz 2 jadi selesai">
+                Quiz 2 → selesai
+              </button>
+              <button class="example" data-example="Ubah status tugas Resume Bab 3 jadi in progress">
+                Resume Bab 3 → in progress
+              </button>
+              <button class="example" data-example="Tandai tugas Laporan Praktikum jadi selesai">
+                Laporan Praktikum → selesai
+              </button>
+            </div>
+          </div>
         </div>
       </section>
+
+      <aside class="side">
+        <h3>Cara pakai (cepat)</h3>
+        <ol class="steps">
+          <li>Klik salah satu tombol contoh.</li>
+          <li>Chat akan terisi otomatis. Kamu tinggal Enter / Send.</li>
+          <li>Cek hasilnya: harus ada balasan “✅ Oke, sudah aku simpan…” atau list tugas.</li>
+        </ol>
+
+        <div class="note">
+          <b>Tips biar kebaca stabil:</b><br/>
+          • Pakai kata “untuk” sebelum MK (contoh: “untuk Kalkulus”).<br/>
+          • Untuk jam, pakai format <b>19:00</b> atau “jam 19:00”.<br/>
+          • Prioritas tulis eksplisit: <b>prioritas tinggi/sedang/rendah</b>.
+        </div>
+      </aside>
     </div>
 
     <!-- Dialogflow Messenger -->
+    <script src="https://www.gstatic.com/dialogflow-console/fast/messenger/bootstrap.js?v=1"></script>
     <df-messenger
-      chat-title="Chatbot_Tugas_Kuliah"
-      agent-id="e6380229-e150-4622-8273-ba23458ecf91"
-      language-code="id"
+      chat-title={CHAT_TITLE}
+      agent-id={AGENT_ID}
+      language-code={LANG}
     ></df-messenger>
 
-    <!-- Wajib: bootstrap DF Messenger -->
-    <script src="https://www.gstatic.com/dialogflow-console/fast/messenger/bootstrap.js?v=1"></script>
-
-    <!-- Klik contoh -> isi ke input df-messenger (type-safe biar ga merah di VSCode) -->
     <script>
-      const messenger = document.querySelector("df-messenger");
+  document.addEventListener("click", (e) => {
+    const evt = e;
+    const target = evt.target;
+    if (!(target instanceof Element)) return;
 
-      document.addEventListener("click", (e) => {
-        const target = e.target;
-        if (!(target instanceof HTMLElement)) return;
+    const btn = target.closest("button[data-example]");
+    if (!btn) return;
 
-        const btn = target.closest("button[data-example]");
-        if (!btn) return;
+    const text = btn.getAttribute("data-example");
+    if (!text) return;
 
-        const text = btn.getAttribute("data-example");
-        if (!text) return;
+    const messenger = document.querySelector("df-messenger") as HTMLElement | null;
+    if (!messenger) return;
 
-        if (!(messenger instanceof HTMLElement)) return;
+    const shadow1 = messenger.shadowRoot;
+    const chat = shadow1?.querySelector("df-messenger-chat") as HTMLElement | null;
+    const shadow2 = chat?.shadowRoot;
 
-        const shadow = messenger.shadowRoot;
+    const inputWrap = shadow2?.querySelector("df-messenger-user-input") as HTMLElement | null;
+    const shadow3 = inputWrap?.shadowRoot;
 
-        const input =
-          shadow?.querySelector("df-messenger-chat")
-            ?.shadowRoot?.querySelector("df-messenger-user-input")
-            ?.shadowRoot?.querySelector("input, textarea");
+    const input = shadow3?.querySelector("textarea, input") as
+      | HTMLTextAreaElement
+      | HTMLInputElement
+      | null;
 
-        if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
-          input.value = text;
-          input.dispatchEvent(new Event("input", { bubbles: true }));
-          input.focus();
-        } else {
-          alert("Chat belum siap. Coba tunggu 1–2 detik lalu klik lagi.");
-        }
-      });
-    </script>
+    if (!input) {
+      alert("Chat belum siap. Tunggu 1-2 detik lalu klik lagi.");
+      return;
+    }
+
+    input.value = text;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.focus();
+  });
+</script>
+
   </body>
 </html>
+
 
 
