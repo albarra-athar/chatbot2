@@ -117,8 +117,8 @@ export const POST: APIRoute = async ({ request }) => {
       const courseKey = sanitizeCourse(courseRaw) || "umum";
       const courseDisplay = titleCase(courseKey);
 
-      const dueDate = asString(params.due_date, "");
-      const dueTime = asString(params.due_time, "");
+      const dueDate = asString(params.due_date ?? params.date, "");
+      const dueTime = asString(params.due_time ?? params.time, "");
       const dueAt = buildDateTime(dueDate, dueTime);
 
       const priorityRaw = asString(params.priority, "medium").toLowerCase();
@@ -133,7 +133,7 @@ export const POST: APIRoute = async ({ request }) => {
         penting: "high",
       };
       const priority = mapPriority[priorityRaw] ?? "medium";
-
+      
       const { error } = await supabase.from("tasks").insert({
         user_id: userId,
         title,
