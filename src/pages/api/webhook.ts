@@ -76,7 +76,7 @@ export const POST: APIRoute = async ({ request }) => {
 };
 
 // Optional: health check GET biar gampang cek browser
-export const GET = async () => {
+export const GET: APIRoute = async () => {
   return new Response("OK /api/webhook", {
     status: 200,
     headers: {
@@ -85,3 +85,4 @@ export const GET = async () => {
     },
   });
 };
+
