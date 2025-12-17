@@ -13,7 +13,7 @@ interface DFRequestBody {
     queryText?: string;
   };
 
-  // Dialogflow Messenger payload (kalau lewat widget)
+  // Dialogflow Messenger biasanya mengirim ini (kalau lewat widget)
   originalDetectIntentRequest?: {
     payload?: any;
   };
@@ -44,53 +44,51 @@ function pickFirst(v: any) {
   return Array.isArray(v) ? v[0] : v;
 }
 
-/**
- * DF @sys.date-time bisa muncul sebagai:
- * - "2025-12-20T10:00:00+07:00"
- * - { startDateTime, endDateTime }
- * - { startDate, endDate } (date only / range)
- * - "2025-12-20" (date only)
- */
-function isoFromDateOnly(
-  dateStr?: string,
-  defaultTime = "23:59:00"
-): string | null {
-  if (!dateStr) return null;
-  const d = dateStr.split("T")[0].trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
-  return `${d}T${defaultTime}+07:00`;
+/** Ambil teks asli user dari beberapa tempat */
+function getUserText(body: DFRequestBody): string {
+  const q = body.queryResult?.queryText;
+  if (q) return q;
+
+  const t =
+    body.originalDetectIntentRequest?.payload?.data?.message?.text ??
+    body.originalDetectIntentRequest?.payload?.data?.text ??
+    "";
+  return typeof t === "string" ? t : "";
 }
 
+/** Normalisasi nama matkul */
+function sanitizeCourse(v: any): string {
+  let s = asString(v, "").toLowerCase().trim();
+  if (!s) return "";
+  s = s.replace(/\b(mata ?kuliah|matakuliah)\b/gi, "");
+  s = s.replace(/\b(tugas)(nya)?\b/gi, "");
+  s = s.replace(/\b(untuk|tentang|mengenai)\b/gi, "");
+  s = s.replace(/[:\-–—]/g, " ");
+  s = s.replace(/[^a-z0-9\s]/gi, "");
+  s = s.replace(/\s+/g, " ").trim();
+  return s;
+}
+
+/** DATE-TIME parsing dari Dialogflow */
 function extractISODateTime(v: any): string | null {
   const x = pickFirst(v);
   if (!x) return null;
 
-  if (typeof x === "string") {
-    // bisa ISO atau YYYY-MM-DD
-    if (/^\d{4}-\d{2}-\d{2}$/.test(x.trim())) {
-      return isoFromDateOnly(x.trim(), "23:59:00");
-    }
-    return x;
-  }
+  // seringnya string ISO
+  if (typeof x === "string") return x;
 
+  // kadang object interval
   if (typeof x === "object") {
-    const iso =
-      x.startDateTime ??
-      x.date_time ??
-      x.dateTime ??
-      x.startDate ?? // kadang date only
-      x.date ?? // kadang date only
-      null;
-
-    if (typeof iso === "string") {
-      if (/^\d{4}-\d{2}-\d{2}$/.test(iso.trim())) {
-        return isoFromDateOnly(iso.trim(), "23:59:00");
-      }
-      return iso;
-    }
+    return x.startDateTime ?? x.date_time ?? x.dateTime ?? x.start ?? null;
   }
-
   return null;
+}
+
+function isoFromDateOnly(dateStr?: string, defaultTime = "23:59:00"): string | null {
+  if (!dateStr) return null;
+  const d = dateStr.split("T")[0];
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
+  return `${d}T${defaultTime}+07:00`;
 }
 
 function formatForUser(iso: string): string {
@@ -114,44 +112,58 @@ function formatForUser(iso: string): string {
   return `${fmtDate}, ${fmtTime} WIB`;
 }
 
-function sanitizeCourse(v: any): string {
-  let s = asString(v, "").toLowerCase().trim();
-  if (!s) return "";
-  s = s.replace(/\b(mata ?kuliah|matakuliah)\b/gi, "");
-  s = s.replace(/\b(tugas)(nya)?\b/gi, "");
-  s = s.replace(/\b(untuk|tentang|mengenai)\b/gi, "");
-  s = s.replace(/[:\-–—]/g, " ");
-  s = s.replace(/[^a-z0-9\s]/gi, "");
-  s = s.replace(/\s+/g, " ").trim();
-  return s;
-}
+/** PRIORITY: ambil dari params yang bisa string/array/object */
+function pickPriorityFromParams(params: DFParameters): string {
+  const candidates = [
+    params.priority,
+    params.prioritas,
+    params.Priority,
+    params.Prioritas,
+    params["task-priority"],
+    params["task_priority"],
+  ];
 
-function mapPriority(raw: string): "low" | "medium" | "high" {
-  const p = raw.trim().toLowerCase();
-  const map: Record<string, "low" | "medium" | "high"> = {
-    rendah: "low",
-    low: "low",
-    sedang: "medium",
-    medium: "medium",
-    normal: "medium",
-    tinggi: "high",
-    high: "high",
-    urgent: "high",
-    penting: "high",
-  };
-  return map[p] ?? "medium";
-}
+  for (const c of candidates) {
+    const v = pickFirst(c);
 
-function extractPriorityFromText(text: string): "low" | "medium" | "high" | "" {
-  const s = (text ?? "").toLowerCase();
-  if (/\b(tinggi|urgent|penting)\b/.test(s)) return "high";
-  if (/\b(rendah)\b/.test(s)) return "low";
-  if (/\b(sedang|normal)\b/.test(s)) return "medium";
+    if (!v) continue;
+
+    // kalau object, ambil field umum
+    if (typeof v === "object") {
+      const s = v.name ?? v.value ?? v.original ?? v.originalText ?? v.text ?? "";
+      const out = asString(s, "").trim();
+      if (out) return out;
+    }
+
+    const out = asString(v, "").trim();
+    if (out) return out;
+  }
   return "";
 }
 
+/** PRIORITY: fallback dari queryText */
+function extractPriorityFromText(text: string): string {
+  const s = (text ?? "").toLowerCase();
+  // cari pola "prioritas tinggi/sedang/rendah" atau "prio tinggi"
+  const m =
+    s.match(/\b(prioritas|prio)\s*(tinggi|sedang|rendah)\b/i) ||
+    s.match(/\b(high|medium|low|urgent)\b/i);
+  return m ? m[2] ?? m[1] ?? "" : "";
+}
+
+/** PRIORITY mapping fuzzy */
+function mapPriority(raw: string): "low" | "medium" | "high" {
+  const p = (raw ?? "").toString().trim().toLowerCase();
+
+  if (p.includes("tinggi") || p.includes("high") || p.includes("urgent") || p.includes("penting")) return "high";
+  if (p.includes("rendah") || p.includes("low")) return "low";
+  if (p.includes("sedang") || p.includes("medium") || p.includes("normal")) return "medium";
+
+  return "medium";
+}
+
 function mapStatus(raw: string): "todo" | "in_progress" | "done" {
-  const s = raw.trim().toLowerCase();
+  const s = (raw ?? "").toString().trim().toLowerCase();
   const map: Record<string, "todo" | "in_progress" | "done"> = {
     todo: "todo",
     "to do": "todo",
@@ -169,26 +181,10 @@ function mapStatus(raw: string): "todo" | "in_progress" | "done" {
     beres: "done",
     kelar: "done",
   };
-  return map[s] ?? "todo";
+  return map[s] ?? (s.includes("progress") ? "in_progress" : s.includes("selesai") ? "done" : "todo");
 }
 
-/** Ambil teks asli user dari beberapa tempat */
-function getUserText(body: DFRequestBody): string {
-  const q = body.queryResult?.queryText;
-  if (q) return q;
-
-  const t =
-    body.originalDetectIntentRequest?.payload?.data?.message?.text ??
-    body.originalDetectIntentRequest?.payload?.data?.text ??
-    "";
-  return typeof t === "string" ? t : "";
-}
-
-/**
- * Ekstrak judul tugas dari kalimat seperti:
- * - "Tandai tugas Quiz 1 selesai"
- * - "Ubah status tugas Laporan Praktikum jadi in progress"
- */
+/** Ekstrak judul tugas dari kalimat update */
 function extractTitleFromText(text: string): string {
   const s = (text ?? "").trim();
 
@@ -209,7 +205,7 @@ function extractTitleFromText(text: string): string {
   return "";
 }
 
-/** Ambil title dari parameter (kalau user set param lain selain "title") */
+/** Ambil title dari parameter (kalau user set param selain "title") */
 function pickTitleFromParams(params: DFParameters): string {
   const candidates = [
     params.title,
@@ -228,57 +224,41 @@ function pickTitleFromParams(params: DFParameters): string {
   return "";
 }
 
-function pickStatusFromText(text: string): string {
-  const s = (text ?? "").toLowerCase();
-  // urutan penting: cek done dulu
-  if (/\b(selesai|done|beres|kelar)\b/.test(s)) return "done";
-  if (/\b(in\s*progress|progres|proses|dikerjakan)\b/.test(s)) return "in_progress";
-  if (/\b(todo|belum)\b/.test(s)) return "todo";
-  return "";
-}
-
 export const POST: APIRoute = async ({ request }) => {
   const body = (await request.json()) as DFRequestBody;
 
   const intentName = normalizeIntent(body.queryResult?.intent?.displayName);
   const params = body.queryResult?.parameters ?? {};
+  const userText = getUserText(body);
   const userId = "demo";
 
   try {
     // =======================
     // 1) ADD TASK
     // =======================
-    if (
-      intentName === "add_task" ||
-      intentName === "tambah_tugas" ||
-      intentName === "tambah tugas"
-    ) {
-      const userText = getUserText(body);
-
+    if (intentName === "add_task" || intentName === "tambah_tugas" || intentName === "tambah tugas") {
       const title = asString(params.title, "").trim();
       if (!title) return ok("Judul tugasnya apa?");
 
       const courseRaw = asString(params.course, "Umum").trim();
       const course = sanitizeCourse(courseRaw) || "umum";
 
-      // priority: dari param, kalau kosong ambil dari teks
-      const prFromParam = asString(params.priority ?? params.prioritas, "").trim();
+      // PRIORITY robust
+      const prFromParam = pickPriorityFromParams(params);
       const prFromText = extractPriorityFromText(userText);
       const priority = mapPriority(prFromParam || prFromText || "medium");
 
-      // date-time: ambil dari beberapa nama param
-      const dfDateTimeRaw =
-        params["date-time"] ?? params["date_time"] ?? params["dateTime"] ?? params["datetime"];
-
+      // DATE-TIME robust (Dialogflow param kamu bernama "date-time")
+      const dfDateTimeRaw = params["date-time"] ?? params["date_time"] ?? params["dateTime"];
       let dueISO = extractISODateTime(dfDateTimeRaw);
 
-      // fallback: kalau ada date-only param
+      // fallback: kalau kamu punya param date saja
       if (!dueISO) {
-        const dateOnly = asString(params.date ?? params.due_date ?? params["due-date"], "");
-        dueISO = isoFromDateOnly(dateOnly, "23:59:00");
+        const dateOnly = asString(params.date ?? params.due_date, "");
+        dueISO = isoFromDateOnly(dateOnly);
       }
 
-      // fallback terakhir: hari ini 23:59
+      // fallback terakhir: hari ini 23:59 WIB
       if (!dueISO) {
         const today = new Intl.DateTimeFormat("en-CA", {
           timeZone: "Asia/Jakarta",
@@ -301,23 +281,16 @@ export const POST: APIRoute = async ({ request }) => {
       if (error) throw error;
 
       return ok(
-        `✅ Oke, sudah aku simpan.\n• Tugas: ${title}\n• MK: ${courseRaw || course}\n• Deadline: ${formatForUser(
-          dueISO
-        )}\n• Prioritas: ${priority}`
+        `✅ Oke, sudah aku simpan.\n• Tugas: ${title}\n• MK: ${courseRaw || course}\n• Deadline: ${formatForUser(dueISO)}\n• Prioritas: ${priority}`
       );
     }
 
     // =======================
     // 2) LIST TASKS BY COURSE
     // =======================
-    if (
-      intentName === "list_tasks_by_course" ||
-      intentName === "course" ||
-      intentName === "tugas_per_mata_kuliah"
-    ) {
+    if (intentName === "list_tasks_by_course" || intentName === "course" || intentName === "tugas_per_mata_kuliah") {
       const courseParam = asString(params.course, "").trim();
-      if (!courseParam)
-        return ok("Mata kuliahnya apa? Contoh: Kalkulus, Fisika Dasar, dst.");
+      if (!courseParam) return ok("Mata kuliahnya apa? Contoh: Kalkulus, Fisika Dasar, dst.");
 
       const course = sanitizeCourse(courseParam) || courseParam.toLowerCase();
 
@@ -348,19 +321,13 @@ export const POST: APIRoute = async ({ request }) => {
     // =======================
     // 3) LIST TASKS BY DATE
     // =======================
-    if (
-      intentName === "list_tasks_by_date" ||
-      intentName === "tugas_per_tanggal" ||
-      intentName === "tugas_hari_ini"
-    ) {
-      const dfDateTimeRaw =
-        params["date-time"] ?? params["date_time"] ?? params["dateTime"] ?? params["datetime"];
-
+    if (intentName === "list_tasks_by_date" || intentName === "tugas_per_tanggal" || intentName === "tugas_hari_ini") {
+      const dfDateTimeRaw = params["date-time"] ?? params["date_time"] ?? params["dateTime"];
       let iso = extractISODateTime(dfDateTimeRaw);
 
       if (!iso) {
-        const dateOnly = asString(params.date ?? params.due_date ?? params["due-date"], "");
-        iso = isoFromDateOnly(dateOnly, "23:59:00");
+        const dateOnly = asString(params.date ?? params.due_date, "");
+        iso = isoFromDateOnly(dateOnly);
       }
 
       if (!iso) {
@@ -370,7 +337,7 @@ export const POST: APIRoute = async ({ request }) => {
           month: "2-digit",
           day: "2-digit",
         }).format(new Date());
-        iso = isoFromDateOnly(today, "23:59:00")!;
+        iso = isoFromDateOnly(today)!;
       }
 
       const dt = new Date(iso);
@@ -411,73 +378,37 @@ export const POST: APIRoute = async ({ request }) => {
 
     // =======================
     // 4) UPDATE STATUS
-    // - done/selesai => hapus task dari DB
-    // - lainnya => update status
     // =======================
-    if (
-      intentName === "update_status" ||
-      intentName === "ubah_status_tugas" ||
-      intentName === "ubah status tugas"
-    ) {
-      const userText = getUserText(body);
+    if (intentName === "update_status" || intentName === "ubah_status_tugas" || intentName === "ubah status tugas") {
+      const status = mapStatus(asString(params.status, "done"));
 
-      // status: dari param kalau ada, kalau tidak ambil dari teks
-      const statusFromParam = asString(params.status, "").trim();
-      const statusFromText = pickStatusFromText(userText);
-      const status = mapStatus(statusFromParam || statusFromText || "done");
-
-      // title: dari params atau dari text
+      // title dari params atau dari kalimat user
       let title = pickTitleFromParams(params);
       if (!title) title = extractTitleFromText(userText);
 
       if (!title) {
-        return ok(
-          'Judul tugasnya apa yang mau diubah statusnya?\nContoh: "Tandai tugas Quiz 1 selesai"'
-        );
+        return ok('Judul tugasnya apa yang mau diubah statusnya? Contoh: "Tandai tugas Quiz 1 selesai".');
       }
 
-      // cari task yang paling relevan (match sebagian judul)
+      // match sebagian judul (case-insensitive)
       const pattern = `%${title}%`;
 
-      const { data: found, error: findErr } = await supabase
+      const { data, error } = await supabase
         .from("tasks")
-        .select("id, title, status")
+        .update({ status })
         .eq("user_id", userId)
         .ilike("title", pattern)
+        .select("id, title, status, due_at")
         .order("due_at", { ascending: true })
         .limit(1);
 
-      if (findErr) throw findErr;
+      if (error) throw error;
 
-      if (!found || found.length === 0) {
+      if (!data || data.length === 0) {
         return ok(`Aku tidak menemukan tugas yang cocok dengan "${title}". Coba tulis judulnya lebih spesifik.`);
       }
 
-      const task = found[0];
-
-      // kalau done => hapus (biar hilang dari list)
-      if (status === "done") {
-        const { error: delErr } = await supabase
-          .from("tasks")
-          .delete()
-          .eq("id", task.id)
-          .eq("user_id", userId);
-
-        if (delErr) throw delErr;
-
-        return ok(`✅ Sip. Tugas "${task.title}" sudah ditandai selesai dan dihapus dari daftar.`);
-      }
-
-      // selain done => update status
-      const { error: updErr } = await supabase
-        .from("tasks")
-        .update({ status })
-        .eq("id", task.id)
-        .eq("user_id", userId);
-
-      if (updErr) throw updErr;
-
-      return ok(`✅ Oke. Status "${task.title}" sekarang: ${status}.`);
+      return ok(`✅ Oke. Status "${data[0].title}" sudah jadi ${data[0].status}.`);
     }
 
     return ok("Webhook aktif, tapi intent ini belum di-handle.");
@@ -493,6 +424,7 @@ export const GET: APIRoute = async () => {
     headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
 };
+
 
 
 
