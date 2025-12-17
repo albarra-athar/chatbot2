@@ -1,5 +1,4 @@
 ---
-/* Tidak pakai Layout supaya tidak error */
 ---
 
 <!DOCTYPE html>
@@ -15,61 +14,78 @@
     <style>
       body {
         margin: 0;
-        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont,
-          "Segoe UI", Roboto, sans-serif;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          Roboto, sans-serif;
         background: #f3f4f6;
         color: #111827;
       }
-
       .container {
-        max-width: 900px;
-        margin: 40px auto;
-        padding: 24px;
+        max-width: 980px;
+        margin: 0 auto;
+        padding: 40px 20px 80px;
       }
-
       h1 {
-        font-size: 1.6rem;
-        margin-bottom: 8px;
+        margin: 0 0 8px;
+        font-size: 28px;
       }
-
-      p {
+      .subtitle {
+        margin: 0 0 22px;
         color: #4b5563;
+      }
+      .card {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 18px;
         margin-bottom: 16px;
       }
-
-      .examples {
+      .card h2 {
+        margin: 0 0 12px;
+        font-size: 16px;
+      }
+      .grid {
         display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-        gap: 12px;
-        margin-bottom: 32px;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 10px;
       }
-
-      .examples button {
-        background: #e5e7eb;
-        border: 1px solid #d1d5db;
-        padding: 10px 12px;
-        border-radius: 8px;
-        cursor: pointer;
-        font-size: 0.9rem;
+      button[data-example] {
         text-align: left;
+        background: #eef2f7;
+        border: 1px solid #d1d5db;
+        border-radius: 10px;
+        padding: 12px 12px;
+        cursor: pointer;
+        font-size: 14px;
+        line-height: 1.35;
+      }
+      button[data-example]:hover {
+        background: #e5e7eb;
+      }
+      .note {
+        margin-top: 10px;
+        font-size: 13px;
+        color: #6b7280;
       }
 
-      .examples button:hover {
-        background: #d1d5db;
-      }
-
+      /* Tema DF Messenger (abu-abu terang) */
       df-messenger {
-        --df-messenger-bot-message: #ffffff;
-        --df-messenger-user-message: #e5e7eb;
+        --df-messenger-chat-background-color: #ffffff;
         --df-messenger-font-color: #111827;
-        --df-messenger-button-titlebar-color: #e5e7eb;
-        --df-messenger-chat-background-color: #f9fafb;
-        --df-messenger-send-icon: #4b5563;
-        --df-messenger-user-message-text-color: #111827;
-        position: fixed;
-        bottom: 16px;
-        right: 16px;
-        z-index: 999;
+
+        --df-messenger-bot-message: #f3f4f6;
+        --df-messenger-bot-message-font-color: #111827;
+
+        --df-messenger-user-message: #e5e7eb;
+        --df-messenger-user-message-font-color: #111827;
+
+        --df-messenger-button-titlebar-color: #374151;
+        --df-messenger-button-titlebar-font-color: #ffffff;
+
+        --df-messenger-input-box-color: #ffffff;
+        --df-messenger-input-font-color: #111827;
+        --df-messenger-input-placeholder-font-color: #6b7280;
+
+        --df-messenger-send-icon: #2563eb;
       }
     </style>
   </head>
@@ -77,77 +93,130 @@
   <body>
     <div class="container">
       <h1>📚 Chatbot Tugas Kuliah</h1>
-      <p>
-        Gunakan chatbot untuk mencatat tugas, melihat daftar tugas, dan mengubah
-        status tugas.
+      <p class="subtitle">
+        Demo mode: contoh perintah di bawah ini dibuat supaya parameter pasti terbaca
+        (course + date-time + title).
       </p>
 
-      <h3>Contoh perintah</h3>
-      <div class="examples">
-        <button data-example="Tambah tugas Quiz 3 untuk Kalkulus besok jam 19:00 prioritas tinggi">
-          Tambah tugas Quiz 3 untuk Kalkulus besok jam 19:00 prioritas tinggi
-        </button>
+      <!-- ADD TASK: selalu ada course + date-time + title -->
+      <div class="card">
+        <h2>➕ Tambah tugas (pasti masuk DB)</h2>
+        <div class="grid">
+          <button
+            data-example="Tambah tugas Quiz 1 untuk Kalkulus tanggal 20 Desember 2025 jam 10:00 prioritas tinggi"
+          >
+            Tambah tugas Quiz 1 untuk Kalkulus tanggal 20 Desember 2025 jam 10:00 prioritas tinggi
+          </button>
 
-        <button data-example="Tambah tugas Laporan Praktikum untuk Fisika besok jam 19:00">
-          Tambah tugas Laporan Praktikum untuk Fisika besok jam 19:00
-        </button>
+          <button
+            data-example="Tambah tugas Laporan Praktikum untuk Fisika Dasar tanggal 22 Desember 2025 jam 19:00 prioritas sedang"
+          >
+            Tambah tugas Laporan Praktikum untuk Fisika Dasar tanggal 22 Desember 2025 jam 19:00 prioritas sedang
+          </button>
 
-        <button data-example="Tugas Kalkulus apa saja?">
-          Tugas Kalkulus apa saja?
-        </button>
+          <button
+            data-example="Tambah tugas Resume Bab 3 untuk Sistem Digital tanggal 5 Januari 2026 jam 08:30 prioritas rendah"
+          >
+            Tambah tugas Resume Bab 3 untuk Sistem Digital tanggal 5 Januari 2026 jam 08:30 prioritas rendah
+          </button>
+        </div>
 
-        <button data-example="Tugas besok apa saja?">
-          Tugas besok apa saja?
-        </button>
+        <div class="note">
+          Format yang paling aman untuk demo: <b>tanggal DD Bulan YYYY jam HH:MM</b>.
+        </div>
+      </div>
 
-        <button data-example="Tandai tugas Quiz 3 selesai">
-          Tandai tugas Quiz 3 selesai
-        </button>
+      <!-- LIST BY COURSE -->
+      <div class="card">
+        <h2>📋 Cek tugas per mata kuliah</h2>
+        <div class="grid">
+          <button data-example="Tugas Kalkulus apa saja?">
+            Tugas Kalkulus apa saja?
+          </button>
+          <button data-example="Tugas Fisika Dasar yang belum selesai apa saja?">
+            Tugas Fisika Dasar yang belum selesai apa saja?
+          </button>
+          <button data-example="Tugas Sistem Digital apa saja?">
+            Tugas Sistem Digital apa saja?
+          </button>
+        </div>
+      </div>
+
+      <!-- LIST BY DATE -->
+      <div class="card">
+        <h2>📅 Cek tugas berdasarkan tanggal</h2>
+        <div class="grid">
+          <button data-example="Tugas yang due tanggal 20 Desember 2025 apa?">
+            Tugas yang due tanggal 20 Desember 2025 apa?
+          </button>
+          <button data-example="Tugas yang due tanggal 22 Desember 2025 apa?">
+            Tugas yang due tanggal 22 Desember 2025 apa?
+          </button>
+          <button data-example="Tugas yang due tanggal 5 Januari 2026 apa?">
+            Tugas yang due tanggal 5 Januari 2026 apa?
+          </button>
+        </div>
+      </div>
+
+      <!-- UPDATE STATUS -->
+      <div class="card">
+        <h2>✅ Update status tugas</h2>
+        <div class="grid">
+          <button data-example="Tandai tugas Quiz 1 selesai">
+            Tandai tugas Quiz 1 selesai
+          </button>
+          <button data-example="Ubah status tugas Laporan Praktikum jadi in progress">
+            Ubah status tugas Laporan Praktikum jadi in progress
+          </button>
+          <button data-example="Tandai tugas Resume Bab 3 selesai">
+            Tandai tugas Resume Bab 3 selesai
+          </button>
+        </div>
       </div>
     </div>
 
-    <!-- Dialogflow Messenger Widget -->
+    <!-- Dialogflow widget -->
     <df-messenger
       chat-title="Chatbot_Tugas_Kuliah"
       agent-id="e6380229-e150-4622-8273-ba23458ecf91"
       language-code="id"
     ></df-messenger>
 
-    <!-- Script klik contoh -> masuk ke chat -->
+    <!-- Klik contoh -> otomatis isi ke input chat -->
     <script>
-  document.addEventListener("click", (e) => {
-    const target = e.target;
-    if (!(target instanceof Element)) return;
+      document.addEventListener("click", (e) => {
+        const target = e.target;
+        if (!(target instanceof Element)) return;
 
-    const btn = target.closest("button[data-example]");
-    if (!btn) return;
+        const btn = target.closest("button[data-example]");
+        if (!btn) return;
 
-    const text = btn.getAttribute("data-example");
-    if (!text) return;
+        const text = btn.getAttribute("data-example");
+        if (!text) return;
 
-    const messenger = document.querySelector("df-messenger");
-    if (!messenger) return;
+        const messenger = document.querySelector("df-messenger");
+        if (!messenger) return;
 
-    const shadow1 = messenger.shadowRoot;
-    const chat = shadow1?.querySelector("df-messenger-chat");
-    const shadow2 = chat?.shadowRoot;
-    const inputWrap = shadow2?.querySelector("df-messenger-user-input");
-    const shadow3 = inputWrap?.shadowRoot;
+        const shadow1 = messenger.shadowRoot;
+        const chat = shadow1?.querySelector("df-messenger-chat");
+        const shadow2 = chat?.shadowRoot;
+        const inputWrap = shadow2?.querySelector("df-messenger-user-input");
+        const shadow3 = inputWrap?.shadowRoot;
 
-    const input = shadow3?.querySelector("textarea, input");
-    if (!(input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)) {
-      alert("Chat belum siap. Tunggu 1–2 detik lalu coba lagi.");
-      return;
-    }
+        const input = shadow3?.querySelector("textarea, input");
+        if (!(input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)) {
+          alert("Chat belum siap. Tunggu 1–2 detik lalu klik lagi.");
+          return;
+        }
 
-    input.value = text;
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    input.focus();
-  });
-</script>
-
+        input.value = text;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.focus();
+      });
+    </script>
   </body>
 </html>
+
 
 
 
