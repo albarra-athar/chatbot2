@@ -5,10 +5,17 @@ import type { APIRoute } from "astro";
 import { createClient } from "@supabase/supabase-js";
 
 type DFParameters = Record<string, any>;
+
 interface DFRequestBody {
   queryResult?: {
     intent?: { displayName?: string };
     parameters?: DFParameters;
+    queryText?: string;
+  };
+
+  // Dialogflow Messenger biasanya mengirim ini (kalau lewat widget)
+  originalDetectIntentRequest?: {
+    payload?: any;
   };
 }
 
@@ -37,48 +44,23 @@ function pickFirst(v: any) {
   return Array.isArray(v) ? v[0] : v;
 }
 
-/**
- * Ambil ISO date-time dari parameter @sys.date-time Dialogflow.
- * Bisa berupa:
- * - string: "2025-12-20T10:00:00+07:00"
- * - array: ["2025-..."]
- * - object range: { startDateTime, endDateTime }
- */
 function extractISODateTime(v: any): string | null {
   const x = pickFirst(v);
   if (!x) return null;
-
   if (typeof x === "string") return x;
-
   if (typeof x === "object") {
-    // Range / object
-    return (
-      x.startDateTime ??
-      x.date_time ??
-      x.dateTime ??
-      x.startDate ??
-      x.date ??
-      null
-    );
+    return x.startDateTime ?? x.date_time ?? x.dateTime ?? null;
   }
-
   return null;
 }
 
-/**
- * Kalau user cuma kasih @sys.date (tanpa waktu), jadikan jam default 23:59.
- * Accept format: "YYYY-MM-DD" atau "YYYY-MM-DDT..."
- */
 function isoFromDateOnly(dateStr?: string, defaultTime = "23:59:00"): string | null {
   if (!dateStr) return null;
   const d = dateStr.split("T")[0];
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
-  // Anggap WIB kalau tidak ada timezone. Dialogflow biasanya sudah kasih timezone,
-  // tapi ini untuk fallback.
   return `${d}T${defaultTime}+07:00`;
 }
 
-/** Format ISO -> "20 Des 2025, 10:00 WIB" (untuk output chatbot) */
 function formatForUser(iso: string): string {
   const dt = new Date(iso);
   if (isNaN(dt.getTime())) return iso;
@@ -100,7 +82,6 @@ function formatForUser(iso: string): string {
   return `${fmtDate}, ${fmtTime} WIB`;
 }
 
-/** Normalisasi course biar konsisten */
 function sanitizeCourse(v: any): string {
   let s = asString(v, "").toLowerCase().trim();
   if (!s) return "";
@@ -137,6 +118,7 @@ function mapStatus(raw: string): "todo" | "in_progress" | "done" {
     belum: "todo",
 
     "in progress": "in_progress",
+    inprogress: "in_progress",
     progres: "in_progress",
     proses: "in_progress",
     dikerjakan: "in_progress",
@@ -145,8 +127,70 @@ function mapStatus(raw: string): "todo" | "in_progress" | "done" {
     done: "done",
     selesai: "done",
     beres: "done",
+    kelar: "done",
   };
   return map[s] ?? "todo";
+}
+
+/** Ambil teks asli user dari beberapa tempat */
+function getUserText(body: DFRequestBody): string {
+  const q = body.queryResult?.queryText;
+  if (q) return q;
+
+  // DF Messenger payload biasanya begini:
+  // originalDetectIntentRequest.payload.data.message.text
+  const t =
+    body.originalDetectIntentRequest?.payload?.data?.message?.text ??
+    body.originalDetectIntentRequest?.payload?.data?.text ??
+    "";
+  return typeof t === "string" ? t : "";
+}
+
+/**
+ * Ekstrak judul tugas dari kalimat seperti:
+ * - "Tandai tugas Quiz 1 selesai"
+ * - "Ubah status tugas Laporan Praktikum jadi in progress"
+ * - "Tandai tugas Resume Bab 3 selesai"
+ */
+function extractTitleFromText(text: string): string {
+  const s = (text ?? "").trim();
+
+  // pola umum
+  const patterns: RegExp[] = [
+    /tandai\s+tugas\s+(.+?)\s+(selesai|done)\b/i,
+    /ubah\s+status\s+tugas\s+(.+?)\s+jadi\s+(.+)\b/i,
+    /status\s+tugas\s+(.+?)\s+(selesai|done|todo|in progress|in_progress)\b/i,
+  ];
+
+  for (const re of patterns) {
+    const m = s.match(re);
+    if (m && m[1]) return m[1].trim();
+  }
+
+  // fallback: kalau ada kata "tugas", ambil setelahnya
+  const m2 = s.match(/\btugas\b\s+(.+)/i);
+  if (m2 && m2[1]) return m2[1].trim();
+
+  return "";
+}
+
+/** Ambil title dari parameter (kalau user pernah set param lain selain "title") */
+function pickTitleFromParams(params: DFParameters): string {
+  const candidates = [
+    params.title,
+    params.task,
+    params.tugas,
+    params.task_title,
+    params.any,
+    params["task-name"],
+    params["task_name"],
+  ];
+
+  for (const c of candidates) {
+    const v = asString(pickFirst(c), "").trim();
+    if (v) return v;
+  }
+  return "";
 }
 
 export const POST: APIRoute = async ({ request }) => {
@@ -165,44 +209,30 @@ export const POST: APIRoute = async ({ request }) => {
       intentName === "tambah_tugas" ||
       intentName === "tambah tugas"
     ) {
-      // Title
       const title = asString(params.title, "").trim();
       if (!title) return ok("Judul tugasnya apa?");
 
-      // Course
       const courseRaw = asString(params.course, "Umum").trim();
       const course = sanitizeCourse(courseRaw) || "umum";
 
-      // Priority
-      const priorityRaw = asString(params.priority, "medium");
-      const priority = mapPriority(priorityRaw);
+      const priority = mapPriority(asString(params.priority, "medium"));
 
-      // Date-time: ambil dari beberapa kemungkinan nama param
       const dfDateTimeRaw =
         params["date-time"] ?? params["date_time"] ?? params["dateTime"];
-
       let dueISO = extractISODateTime(dfDateTimeRaw);
 
-      // Fallback: kalau agent kamu juga kadang kirim due_date / due_time (opsional)
       if (!dueISO) {
-        const dueDate = asString(params.due_date, "");
-        const dueTime = asString(params.due_time, "");
-        const d = dueDate ? dueDate.split("T")[0] : null;
-        if (d) {
-          const time = dueTime && dueTime.match(/(\d{2}:\d{2})/)?.[1];
-          const t = time ? `${time}:00` : "23:59:00";
-          dueISO = `${d}T${t}+07:00`;
-        }
+        const dateOnly = asString(params.date ?? params.due_date, "");
+        dueISO = isoFromDateOnly(dateOnly);
       }
 
-      // Final fallback: hari ini jam 23:59 WIB
       if (!dueISO) {
         const today = new Intl.DateTimeFormat("en-CA", {
           timeZone: "Asia/Jakarta",
           year: "numeric",
           month: "2-digit",
           day: "2-digit",
-        }).format(new Date()); // YYYY-MM-DD
+        }).format(new Date());
         dueISO = isoFromDateOnly(today, "23:59:00")!;
       }
 
@@ -210,7 +240,7 @@ export const POST: APIRoute = async ({ request }) => {
         user_id: userId,
         title,
         course,
-        due_at: dueISO, // simpan ISO ke timestamptz (paling aman)
+        due_at: dueISO,
         priority,
         status: "todo",
       });
@@ -273,8 +303,6 @@ export const POST: APIRoute = async ({ request }) => {
       const dfDateTimeRaw =
         params["date-time"] ?? params["date_time"] ?? params["dateTime"];
 
-      // Untuk intent ini, user bisa bilang "tanggal 20 Desember 2025" atau "besok"
-      // @sys.date-time biasanya memberi ISO. Kalau tidak ada, coba @sys.date
       let iso = extractISODateTime(dfDateTimeRaw);
 
       if (!iso) {
@@ -282,7 +310,6 @@ export const POST: APIRoute = async ({ request }) => {
         iso = isoFromDateOnly(dateOnly);
       }
 
-      // Kalau kosong juga, pakai hari ini WIB
       if (!iso) {
         const today = new Intl.DateTimeFormat("en-CA", {
           timeZone: "Asia/Jakarta",
@@ -293,14 +320,13 @@ export const POST: APIRoute = async ({ request }) => {
         iso = isoFromDateOnly(today)!;
       }
 
-      // Ambil "tanggal" WIB dari ISO, lalu query range 00:00-23:59 WIB
       const dt = new Date(iso);
       const dayStr = new Intl.DateTimeFormat("en-CA", {
         timeZone: "Asia/Jakarta",
         year: "numeric",
         month: "2-digit",
         day: "2-digit",
-      }).format(dt); // YYYY-MM-DD
+      }).format(dt);
 
       const from = `${dayStr}T00:00:00+07:00`;
       const to = `${dayStr}T23:59:59+07:00`;
@@ -331,37 +357,49 @@ export const POST: APIRoute = async ({ request }) => {
     }
 
     // =======================
-    // 4) UPDATE STATUS
+    // 4) UPDATE STATUS (FIXED)
     // =======================
     if (
       intentName === "update_status" ||
       intentName === "ubah_status_tugas" ||
       intentName === "ubah status tugas"
     ) {
-      const titleParam = asString(params.title, "").trim();
-      if (!titleParam) return ok("Judul tugasnya apa yang mau diubah statusnya?");
+      // status biasanya sudah kebaca dari entity @status
+      const status = mapStatus(asString(params.status, "done"));
 
-      const statusRaw = asString(params.status, "todo");
-      const status = mapStatus(statusRaw);
+      // title bisa datang dari parameter berbeda-beda, atau tidak ada sama sekali
+      let title = pickTitleFromParams(params);
+
+      if (!title) {
+        const userText = getUserText(body);
+        title = extractTitleFromText(userText);
+      }
+
+      if (!title) {
+        return ok("Judul tugasnya apa yang mau diubah statusnya? Contoh: Tandai tugas Quiz 1 selesai.");
+      }
+
+      // Bikin query lebih fleksibel: match sebagian judul
+      const pattern = `%${title}%`;
 
       const { data, error } = await supabase
         .from("tasks")
         .update({ status })
         .eq("user_id", userId)
-        .ilike("title", titleParam) // match case-insensitive
+        .ilike("title", pattern)
         .select("id, title, status")
+        .order("due_at", { ascending: true })
         .limit(1);
 
       if (error) throw error;
 
       if (!data || data.length === 0) {
-        return ok(`Tugas dengan judul "${titleParam}" tidak ditemukan.`);
+        return ok(`Aku tidak menemukan tugas yang cocok dengan "${title}". Coba tulis judulnya lebih spesifik.`);
       }
 
-      return ok(`✅ Status tugas "${data[0].title}" sudah diubah jadi ${data[0].status}.`);
+      return ok(`✅ Oke. Status "${data[0].title}" sudah jadi ${data[0].status}.`);
     }
 
-    // Default
     return ok("Webhook aktif, tapi intent ini belum di-handle.");
   } catch (err: any) {
     console.error("Webhook error:", err);
@@ -375,6 +413,8 @@ export const GET: APIRoute = async () => {
     headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
 };
+
+
 
 
 
