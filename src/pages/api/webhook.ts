@@ -249,6 +249,25 @@ export const POST: APIRoute = async ({ request }) => {
       return json(`✅ Oke. Status "${titleParam}" sekarang: ${mapStatusText(status)}.`);
     }
 
+    if (intentName === "list_all_tasks" || intentName === "list_tasks" || intentName === "tugas_apa_saja") {
+  const { data, error } = await supabase
+    .from("tasks")
+    .select("title, course, due_at, priority, status")
+    .eq("user_id", userId)
+    .neq("status", "done")
+    .order("due_at", { ascending: true });
+
+  if (error) throw error;
+  if (!data || data.length === 0) return json("Saat ini kamu tidak punya tugas yang belum selesai ✅");
+
+  const lines = data.slice(0, 8).map((r, i) =>
+    `${i + 1}. ${r.title} (${r.course}) — ${String(r.due_at).replace("T"," ").slice(0,16)}`
+  );
+  const more = data.length - Math.min(8, data.length);
+
+  return json(`Ini tugas kamu yang belum selesai:\n${lines.join("\n")}${more > 0 ? `\n…dan ${more} lagi.` : ""}`);
+}
+
     // Default
     return json(
       "Aku bisa bantu:\n• Tambah tugas (contoh: Tambah tugas Quiz 2 untuk Kalkulus besok)\n• Lihat tugas per MK (contoh: Tugas Kalkulus)\n• Lihat tugas per tanggal (contoh: Tugas besok)\n• Ubah status (contoh: Ubah status Quiz 2 jadi selesai)"

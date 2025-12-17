@@ -1,7 +1,121 @@
-<script src="https://www.gstatic.com/dialogflow-console/fast/messenger/bootstrap.js?v=1"></script>
-<df-messenger
-  intent="WELCOME"
-  chat-title="Chatbot_Tugas_Kuliah"
-  agent-id="e6380229-e150-4622-8273-ba23458ecf91"
-  language-code="id"
-></df-messenger>
+---
+const examples = [
+  "Tambah tugas Quiz 2 untuk Kalkulus besok",
+  "Tambah tugas Laporan Praktikum untuk Fisika tanggal 20 jam 19:00 prioritas tinggi",
+  "Tugas Kalkulus apa saja?",
+  "Tugas besok",
+  "Ubah status Quiz 2 jadi selesai",
+];
+---
+
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Chatbot Tugas Kuliah</title>
+
+    <style>
+      body { font-family: system-ui, Arial, sans-serif; margin: 0; }
+      .wrap { max-width: 980px; margin: 0 auto; padding: 40px 20px; }
+      .card { border: 1px solid #e5e7eb; border-radius: 16px; padding: 18px; margin: 14px 0; background: white; }
+      .grid { display: grid; gap: 14px; grid-template-columns: 1fr; }
+      @media (min-width: 900px){ .grid { grid-template-columns: 1fr 1fr; } }
+      .badge { display:inline-block; padding: 4px 10px; border-radius: 999px; background:#eef2ff; font-size: 12px; margin-bottom: 10px; }
+      .ex { display:flex; gap:10px; align-items:center; justify-content:space-between; padding:10px 12px; border:1px solid #eee; border-radius:12px; margin:8px 0; }
+      .ex button { border:0; background:#111827; color:white; padding:8px 10px; border-radius:10px; cursor:pointer; }
+      .muted { color:#6b7280; font-size: 14px; }
+      .title { font-size: 28px; margin: 0 0 8px; }
+      .subtitle { margin: 0 0 18px; }
+    </style>
+  </head>
+
+  <body>
+    <main class="wrap">
+      <h1 class="title">Chatbot Tracker Tugas Kuliah</h1>
+      <p class="subtitle muted">
+        Pakai chat di kanan bawah untuk menambah dan mengecek tugas. Kamu bisa klik contoh di bawah supaya cepat.
+      </p>
+
+      <div class="grid">
+        <section class="card">
+          <div class="badge">Cara tambah tugas</div>
+          <p><b>Format cepat:</b></p>
+          <p class="muted">
+            “Tambah tugas <b>[judul]</b> untuk <b>[mata kuliah]</b> <b>[tanggal]</b> <b>[jam]</b> prioritas <b>[rendah/sedang/tinggi]</b>”
+          </p>
+          <div class="muted">
+            Contoh: <i>Tambah tugas Quiz 2 untuk Kalkulus besok</i>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="badge">Cek tugas</div>
+          <ul class="muted">
+            <li><b>Per mata kuliah:</b> “Tugas Kalkulus apa saja?”</li>
+            <li><b>Per tanggal:</b> “Tugas besok” / “Tugas tanggal 20 Januari”</li>
+            <li><b>Ubah status:</b> “Ubah status Quiz 2 jadi selesai”</li>
+          </ul>
+        </section>
+      </div>
+
+      <section class="card">
+        <div class="badge">Contoh cepat (klik)</div>
+
+        {examples.map((t) => (
+          <div class="ex">
+            <span>{t}</span>
+            <button type="button" data-example={t}>Pakai</button>
+          </div>
+        ))}
+
+        <p class="muted">
+          Setelah klik “Pakai”, teksnya akan masuk ke input chat (tinggal Enter).
+        </p>
+      </section>
+    </main>
+
+    <!-- Dialogflow Messenger -->
+    <df-messenger
+      intent="WELCOME"
+      chat-title="Chatbot_Tugas_Kuliah"
+      agent-id="YOUR_AGENT_ID"
+      language-code="id"
+    ></df-messenger>
+
+    <script>
+  const messenger = document.querySelector("df-messenger");
+
+  document.addEventListener("click", (e) => {
+    const target = e.target;
+    if (!(target instanceof HTMLElement)) return;
+
+    const btn = target.closest("button[data-example]");
+    if (!btn) return;
+
+    const text = btn.getAttribute("data-example");
+    if (!text) return;
+
+    if (!(messenger instanceof HTMLElement)) return;
+
+    const shadow = messenger.shadowRoot;
+    const input =
+      shadow?.querySelector("df-messenger-chat")
+        ?.shadowRoot?.querySelector("df-messenger-user-input")
+        ?.shadowRoot?.querySelector("input, textarea");
+
+    if (input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement) {
+      input.value = text;
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.focus();
+    } else {
+      alert("Chat belum siap. Coba tunggu 1–2 detik lalu klik lagi.");
+    }
+  });
+</script>
+
+    <!-- script DF messenger biasanya kamu sudah punya, kalau belum:
+    <script src="https://www.gstatic.com/dialogflow-console/fast/messenger/bootstrap.js?v=1"></script>
+    -->
+  </body>
+</html>
+
